@@ -11,6 +11,7 @@ from models import db, Problem, EquipmentType, ProblemCategory, SolutionCategory
 from config import Config
 from csv_import import import_csv_file
 from ai_analysis import analyze_problem_with_ai, extract_category_from_ai_response
+from vector_db import init_vector_db
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -169,6 +170,14 @@ def create_problem():
     except Exception as e:
         app.logger.error(f'AI分析失败: {str(e)}')
         # 即使AI分析失败，问题仍然被创建
+    
+    # 将问题添加到向量数据库
+    try:
+        success = problem.save_to_vector_db()
+        if not success:
+            app.logger.error(f"无法将问题 {problem.id} 保存到向量数据库")
+    except Exception as e:
+        app.logger.error(f"保存问题到向量数据库失败: {str(e)}")
     
     return jsonify({'id': problem.id, 'message': '问题添加成功'})
 
@@ -434,7 +443,217 @@ def dashboard_page():
     return render_template('dashboard.html')
 
 
+@app.before_first_request
+def initialize_vector_db():
+    """
+    在第一次请求前初始化向量数据库
+    将现有问题数据添加到向量数据库中
+    """
+    init_vector_db()
+    
+    # 将现有的问题导入到向量数据库中
+    try:
+        existing_problems = Problem.query.all()
+        app.logger.info(f"开始同步 {len(existing_problems)} 个现有问题到向量数据库")
+        
+        # 批量处理现有问题
+        problems_data = []
+        for problem in existing_problems:
+            metadata = {
+                'equipment_type_id': problem.equipment_type_id,
+                'problem_category_id': problem.problem_category_id,
+                'solution_category_id': problem.solution_category_id,
+                'status': problem.status,
+                'priority': problem.priority,
+                'phase': problem.phase,
+                'discovered_by': problem.discovered_by,
+                'discovered_at': str(problem.discovered_at) if problem.discovered_at else None,
+                'ai_analyzed': problem.ai_analyzed,
+                'ai_analysis': problem.ai_analysis,
+                'solution_description': problem.solution_description,
+                'created_at': str(problem.created_at),
+                'updated_at': str(problem.updated_at)
+            }
+            problems_data.append({
+                'id': str(problem.id),
+                'title': problem.title,
+                'description': problem.description or "",
+                'metadata': metadata
+            })
+        
+        if problems_data:
+            from vector_db import get_vector_db
+            vector_db = get_vector_db()
+            result = vector_db.batch_add_problems(problems_data)
+            app.logger.info(f"批量同步完成: 成功 {result['success_count']} 个, 失败 {len(result['failed_ids'])} 个")
+            
+            if result['failed_ids']:
+                app.logger.error(f"以下问题同步失败: {result['failed_ids']}")
+    except Exception as e:
+        app.logger.error(f"同步现有问题到向量数据库时出错: {str(e)}")
+
+
+@app.route('/api/search-similar-problems', methods=['POST'])
+def search_similar_problems():
+    """搜索相似问题 - 使用向量数据库"""
+    data = request.get_json()
+    query = data.get('query', '')
+    
+    if not query:
+        return jsonify({'error': '查询内容不能为空'}), 400
+    
+    try:
+        # 使用向量数据库搜索相似问题
+        similar_problems = Problem.search_similar_problems(query, n_results=10)
+        
+        # 获取对应的数据库问题信息
+        detailed_results = []
+        for result in similar_problems:
+            problem_id = result['id']
+            problem = Problem.query.get(problem_id)
+            if problem:
+                problem_data = {
+                    'id': problem.id,
+                    'title': problem.title,
+                    'description': problem.description,
+                    'equipment_type_name': problem.equipment_type.name if problem.equipment_type else None,
+                    'problem_category_name': problem.problem_category.name if problem.problem_category else None,
+                    'solution_category_name': problem.solution_category.name if problem.solution_category else None,
+                    'status': problem.status,
+                    'priority': problem.priority,
+                    'phase': problem.phase,
+                    'distance': result.get('distance'),  # 相似度距离
+                    'similarity_score': 1 - result.get('distance', 0)  # 转换为相似度分数
+                }
+                detailed_results.append(problem_data)
+        
+        return jsonify({
+            'query': query,
+            'similar_problems': detailed_results,
+            'count': len(detailed_results)
+        })
+    except Exception as e:
+        app.logger.error(f'搜索相似问题失败: {str(e)}')
+        return jsonify({'error': '搜索相似问题失败', 'details': str(e)}), 500
+
+
+
+
+
+@app.route('/api/problems/<int:problem_id>', methods=['PUT'])
+def update_problem(problem_id):
+    """更新问题"""
+    problem = Problem.query.get_or_404(problem_id)
+    data = request.get_json()
+    
+    # 更新字段
+    if 'title' in data:
+        problem.title = data['title']
+    if 'description' in data:
+        problem.description = data['description']
+    if 'equipment_type_id' in data:
+        problem.equipment_type_id = data['equipment_type_id']
+    if 'problem_category_id' in data:
+        problem.problem_category_id = data['problem_category_id']
+    if 'solution_category_id' in data:
+        problem.solution_category_id = data['solution_category_id']
+    if 'status' in data:
+        problem.status = data['status']
+    if 'priority' in data:
+        problem.priority = data['priority']
+    if 'phase' in data:
+        problem.phase = data['phase']
+    if 'discovered_by' in data:
+        problem.discovered_by = data['discovered_by']
+    if 'discovered_at' in data:
+        problem.discovered_at = data['discovered_at']
+    if 'ai_analysis' in data:
+        problem.ai_analysis = data['ai_analysis']
+    if 'solution_description' in data:
+        problem.solution_description = data['solution_description']
+    if 'solution_implementation' in data:
+        problem.solution_implementation = data['solution_implementation']
+    if 'solution_verification' in data:
+        problem.solution_verification = data['solution_verification']
+    
+    problem.updated_at = datetime.utcnow()
+    db.session.commit()
+    
+    # 更新向量数据库中的问题
+    try:
+        success = problem.update_vector_db()
+        if not success:
+            app.logger.error(f"无法更新向量数据库中的问题 {problem.id}")
+    except Exception as e:
+        app.logger.error(f"更新向量数据库失败: {str(e)}")
+    
+    return jsonify({'id': problem.id, 'message': '问题更新成功'})
+
+
+@app.route('/api/problems/<int:problem_id>', methods=['DELETE'])
+def delete_problem(problem_id):
+    """删除问题"""
+    problem = Problem.query.get_or_404(problem_id)
+    
+    db.session.delete(problem)
+    db.session.commit()
+    
+    # 从向量数据库中删除问题
+    try:
+        success = problem.delete_from_vector_db()
+        if not success:
+            app.logger.error(f"无法从向量数据库中删除问题 {problem.id}")
+    except Exception as e:
+        app.logger.error(f"从向量数据库删除问题失败: {str(e)}")
+    
+    return jsonify({'message': '问题删除成功'})
+
+
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
+        # 初始化向量数据库
+        init_vector_db()
+        
+        # 将现有问题导入到向量数据库中
+        try:
+            existing_problems = Problem.query.all()
+            app.logger.info(f"开始同步 {len(existing_problems)} 个现有问题到向量数据库")
+            
+            # 批量处理现有问题
+            problems_data = []
+            for problem in existing_problems:
+                metadata = {
+                    'equipment_type_id': problem.equipment_type_id,
+                    'problem_category_id': problem.problem_category_id,
+                    'solution_category_id': problem.solution_category_id,
+                    'status': problem.status,
+                    'priority': problem.priority,
+                    'phase': problem.phase,
+                    'discovered_by': problem.discovered_by,
+                    'discovered_at': str(problem.discovered_at) if problem.discovered_at else None,
+                    'ai_analyzed': problem.ai_analyzed,
+                    'ai_analysis': problem.ai_analysis,
+                    'solution_description': problem.solution_description,
+                    'created_at': str(problem.created_at),
+                    'updated_at': str(problem.updated_at)
+                }
+                problems_data.append({
+                    'id': str(problem.id),
+                    'title': problem.title,
+                    'description': problem.description or "",
+                    'metadata': metadata
+                })
+            
+            if problems_data:
+                from vector_db import get_vector_db
+                vector_db = get_vector_db()
+                result = vector_db.batch_add_problems(problems_data)
+                app.logger.info(f"批量同步完成: 成功 {result['success_count']} 个, 失败 {len(result['failed_ids'])} 个")
+                
+                if result['failed_ids']:
+                    app.logger.error(f"以下问题同步失败: {result['failed_ids']}")
+        except Exception as e:
+            app.logger.error(f"同步现有问题到向量数据库时出错: {str(e)}")
+    
     app.run(debug=True, host='0.0.0.0', port=5000)

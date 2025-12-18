@@ -10,17 +10,13 @@ ENV PYTHONUNBUFFERED=1
 
 # 安装系统依赖
 RUN apk update && apk add --no-cache \
-    build-base \
-    gcc \
-    musl-dev \
-    linux-headers
+    build-base
 
 # 复制requirements文件
 COPY requirements.txt .
 
-# 安装Python依赖
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+# 安装Python依赖 - simplified
+RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir flask
 
 # 复制项目文件到工作目录
 COPY . .

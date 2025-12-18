@@ -3,6 +3,11 @@ from datetime import datetime
 
 db = SQLAlchemy()
 
+# 延迟导入向量数据库以避免循环导入
+def get_vector_db_instance():
+    from vector_db import get_vector_db
+    return get_vector_db()
+
 
 class EquipmentType(db.Model):
     """设备类型表"""
@@ -76,6 +81,127 @@ class Problem(db.Model):
     
     def __repr__(self):
         return f'<Problem {self.title}>'
+    
+    def save_to_vector_db(self):
+        """
+        将问题保存到向量数据库
+        """
+        from vector_db import VectorDBException
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        try:
+            vector_db = get_vector_db_instance()
+            metadata = {
+                'equipment_type_id': self.equipment_type_id,
+                'problem_category_id': self.problem_category_id,
+                'solution_category_id': self.solution_category_id,
+                'status': self.status,
+                'priority': self.priority,
+                'phase': self.phase,
+                'discovered_by': self.discovered_by,
+                'discovered_at': str(self.discovered_at) if self.discovered_at else None,
+                'ai_analyzed': self.ai_analyzed,
+                'created_at': str(self.created_at),
+                'updated_at': str(self.updated_at)
+            }
+            return vector_db.add_problem(
+                problem_id=str(self.id),
+                title=self.title,
+                description=self.description or "",
+                metadata=metadata
+            )
+        except VectorDBException as e:
+            logger.error(f"向量数据库操作失败: {str(e)}")
+            return False
+        except Exception as e:
+            logger.error(f"保存问题到向量数据库失败: {str(e)}")
+            return False
+    
+    def update_vector_db(self):
+        """
+        更新向量数据库中的问题
+        """
+        from vector_db import VectorDBException
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        try:
+            vector_db = get_vector_db_instance()
+            metadata = {
+                'equipment_type_id': self.equipment_type_id,
+                'problem_category_id': self.problem_category_id,
+                'solution_category_id': self.solution_category_id,
+                'status': self.status,
+                'priority': self.priority,
+                'phase': self.phase,
+                'discovered_by': self.discovered_by,
+                'discovered_at': str(self.discovered_at) if self.discovered_at else None,
+                'ai_analyzed': self.ai_analyzed,
+                'created_at': str(self.created_at),
+                'updated_at': str(self.updated_at)
+            }
+            return vector_db.update_problem(
+                problem_id=str(self.id),
+                title=self.title,
+                description=self.description or "",
+                metadata=metadata
+            )
+        except VectorDBException as e:
+            logger.error(f"向量数据库操作失败: {str(e)}")
+            return False
+        except Exception as e:
+            logger.error(f"更新向量数据库中的问题失败: {str(e)}")
+            return False
+    
+    def delete_from_vector_db(self):
+        """
+        从向量数据库中删除问题
+        """
+        from vector_db import VectorDBException
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        try:
+            vector_db = get_vector_db_instance()
+            return vector_db.delete_problem(problem_id=str(self.id))
+        except VectorDBException as e:
+            logger.error(f"向量数据库操作失败: {str(e)}")
+            return False
+        except Exception as e:
+            logger.error(f"从向量数据库删除问题失败: {str(e)}")
+            return False
+    
+    @classmethod
+    def search_similar_problems(cls, query, n_results=None):
+        """
+        搜索相似问题
+        
+        Args:
+            query: 查询文本
+            n_results: 返回结果数量
+        
+        Returns:
+            List[Dict]: 相似问题列表
+        """
+        from vector_db import VectorDBException
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        try:
+            vector_db = get_vector_db_instance()
+            results = vector_db.search_similar_problems(query, n_results, min_similarity=0.1)  # 设置最小相似度阈值
+            return results
+        except VectorDBException as e:
+            logger.error(f"向量数据库操作失败: {str(e)}")
+            return []
+        except Exception as e:
+            logger.error(f"搜索相似问题失败: {str(e)}")
+            return []
 
 
 class AIAnalysisHistory(db.Model):

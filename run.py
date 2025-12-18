@@ -6,6 +6,7 @@ import os
 import sys
 from app import app
 from init_db import init_database
+from vector_db import init_vector_db
 
 
 def main():
@@ -15,6 +16,10 @@ def main():
     # 初始化数据库
     print("正在初始化数据库...")
     init_database()
+    
+    # 初始化向量数据库
+    print("正在初始化向量数据库...")
+    init_vector_db()
     
     # 获取端口配置，默认为5000
     port = int(os.environ.get('PORT', 5000))

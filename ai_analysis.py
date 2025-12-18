@@ -8,6 +8,7 @@ import json
 import re
 from config import Config
 import os
+from vector_db import get_vector_db
 
 # 根据配置决定使用哪种AI服务
 def analyze_problem_with_ai(title, description):
@@ -231,6 +232,27 @@ def extract_category_from_ai_response(ai_response, title, description):
         }
 
 
+def get_similar_problems_by_vector(query_text, top_k=5, min_similarity=0.1):
+    """
+    使用向量数据库查找相似问题
+    
+    Args:
+        query_text: 查询文本
+        top_k: 返回最相似的前k个问题
+        min_similarity: 最小相似度阈值
+    
+    Returns:
+        List[Dict]: 相似问题列表
+    """
+    try:
+        vector_db = get_vector_db()
+        results = vector_db.search_similar_problems(query_text, n_results=top_k, min_similarity=min_similarity)
+        return results
+    except Exception as e:
+        print(f'向量数据库搜索相似问题失败: {str(e)}')
+        return []
+
+
 def get_design_suggestions_for_query(query_text, historical_problems):
     """
     根据查询获取设计建议
@@ -243,31 +265,48 @@ def get_design_suggestions_for_query(query_text, historical_problems):
         str: AI生成的设计建议
     """
     try:
+        # 首先使用向量数据库查找相似问题
+        vector_similar_problems = get_similar_problems_by_vector(query_text, top_k=10)
+        
+        # 构建历史问题文本
         problems_text = ""
-        for p in historical_problems:
+        # 先添加向量数据库中找到的相似问题
+        for p in vector_similar_problems:
+            metadata = p.get('metadata', {})
             problems_text += f"""
+相似问题: {metadata.get('title', '未知标题')}
+描述: {metadata.get('description', '无描述')}
+AI分析: {metadata.get('ai_analysis', '无分析')}
+解决方案: {metadata.get('solution_description', '无解决方案')}
+发现阶段: {metadata.get('phase', '未知阶段')}
+"""
+        
+        # 如果向量搜索结果不够，补充数据库中的其他问题
+        if len(vector_similar_problems) < 5:
+            for p in historical_problems:
+                problems_text += f"""
 问题: {p.title}
 描述: {p.description}
-AI分析: {p.ai_analysis or '\u672a\u5206\u6790'}
-解\u51b3\u65b9\u6848: {p.solution_description or '\u65e0'}
-发\u73b0\u9636\u6bb5: {p.phase}
+AI分析: {p.ai_analysis or '未分析'}
+解决方案: {p.solution_description or '无'}
+发现阶段: {p.phase}
 """
 
-        prompt = f"""\u60a8\u662f\u4e00\u4e2a\u4e13\u4e1a\u7684\u8bbe\u5907\u8bbe\u8ba1\u987e\u95ee\uff0c\u5e2e\u52a9\u5de5\u7a0b\u5e08\u5728\u8bbe\u8ba1\u9636\u6bb5\u89c4\u907f\u6f5c\u5728\u95ee\u9898\u3002\u57fa\u4e8e\u4ee5\u4e0b\u5386\u53f2\u95ee\u9898\u6570\u636e\u5e93\uff0c\u8bf7\u5206\u6790\u7528\u6237\u7684\u8bbe\u8ba1\u67e5\u8be2\u3002
+        prompt = f"""您是一个专业的设备设计顾问，帮助工程师在设计阶段规避潜在问题。基于以下历史问题数据库，请分析用户的设计查询。
 
-\u5386\u53f2\u95ee\u9898\u6570\u636e：
+历史问题数据：
 {problems_text}
 
-\u7528\u6237\u67e5\u8be2: \"{query_text}\"
+用户查询: \"{query_text}\"
 
-\u8bf7\u63d0\u4f9b\u4ee5\u4e0b\u5185\u5bb9：
-1. \u662f\u5426\u5b58\u5728\u7c7b\u4f3c\u7684\u5386\u53f2\u95ee\u9898
-2. \u5982\u679c\u5b58\u5728\uff0c\u8fd9\u4e9b\u95ee\u9898\u7684\u6839\u672c\u539f\u56e0\u662f\u4ec0\u4e48
-3. \u5982\u4f55\u5728\u5f53\u524d\u8bbe\u8ba1\u4e2d\u907f\u514d\u8fd9\u4e9b\u95ee\u9898
-4. \u5177\u4f53\u7684\u8bbe\u8ba1\u5efa\u8bae\u548c\u6700\u4f73\u5b9e\u8df5
-5. \u9700\u8981\u7279\u522b\u6ce8\u610f\u7684\u5173\u952e\u70b9
+请提供以下内容：
+1. 是否存在类似的历史问题
+2. 如果存在，这些问题的根本原因是什么
+3. 如何在当前设计中避免这些问题
+4. 具体的设计建议和最佳实践
+5. 需要特别注意的关键点
 
-\u8bf7\u63d0\u4f9b\u8be6\u7ec6\u3001\u4e13\u4e1a\u7684\u5efa\u8bae\uff0c\u5e2e\u52a9\u7528\u6237\u5728\u8bbe\u8ba1\u9636\u6bb5\u89c4\u907f\u6f5c\u5728\u95ee\u9898\u3002"""
+请提供详细、专业的建议，帮助用户在设计阶段规避潜在问题。"""
         
         if Config.AI_PROVIDER == 'openai':
             return _query_with_openai(prompt)
@@ -284,12 +323,12 @@ AI分析: {p.ai_analysis or '\u672a\u5206\u6790'}
                 'model': Config.DASHSCOPE_MODEL or 'qwen-max',
                 'input': {
                     'messages': [
-                        {'role': 'system', 'content': '\u4f60\u662f\u4e00\u4e2a\u4e13\u4e1a\u7684\u8bbe\u5907\u8bbe\u8ba1\u987e\u95ee\uff0c\u5e2e\u52a9\u5de5\u7a0b\u5e08\u5728\u8bbe\u8ba1\u9636\u6bb5\u89c4\u907f\u6f5c\u5728\u95ee\u9898\u3002'},
+                        {'role': 'system', 'content': '你是一个专业的设备设计顾问，帮助工程师在设计阶段规避潜在问题。'},
                         {'role': 'user', 'content': prompt}
                     ]
                 },
                 'parameters': {
-                    'temperature': 0.4,  # 稍微降低温度以获得更准\u786e\u7684\u6280\u672f\u5efa\u8bae
+                    'temperature': 0.4,  # 稍微降低温度以获得更准确的技术建议
                 }
             }
             
@@ -303,12 +342,37 @@ AI分析: {p.ai_analysis or '\u672a\u5206\u6790'}
                 result = response.json()
                 return result.get('output', {}).get('text', '')
             else:
-                print(f"\u901a\u4e49\u5343\u95eeAPI\u8c03\u7528\u5931\u8d25: {response.status_code}, {response.text}")
-                return f"\u57fa\u4e8e\u5386\u53f2\u6570\u636e\u5206\u6790\uff0c\u9488\u5bf9\u60a8\u7684\u67e5\u8be2 '{query_text}'\uff0c\u6211\u4eec\u53d1\u73b0\u4e86\u4ee5\u4e0b\u8bbe\u8ba1\u5efa\u8bae\uff1a\n\n1. \u5728\u8bbe\u8ba1\u9636\u6bb5\u5e94\u7279\u522b\u6ce8\u610f\u6750\u6599\u9009\u62e9\n2. \u5efa\u8bae\u589e\u52a0\u5197\u4f59\u8bbe\u8ba1\u63d0\u9ad8\u53ef\u9760\u6027\n3. \u8003\u8651\u73af\u5883\u56e0\u7d20\u5bf9\u8bbe\u5907\u7684\u5f71\u54cd"
+                print(f"通义千问API调用失败: {response.status_code}, {response.text}")
+                return f"基于历史数据分析，针对您的查询 '{query_text}'，我们发现了以下设计建议：\n\n1. 在设计阶段应特别注意材料选择\n2. 建议增加冗余设计提高可靠性\n3. 考虑环境因素对设备的影响"
         else:
-            # 模拟\u54cd应
-            return f"\u57fa\u4e8e\u5386\u53f2\u6570\u636e\u5206\u6790\uff0c\u9488\u5bf9\u60a8\u7684\u67e5\u8be2 '{query_text}'\uff0c\u6211\u4eec\u53d1\u73b0\u4e86\u4ee5\u4e0b\u8bbe\u8ba1\u5efa\u8bae\uff1a\n\n1. \u5728\u8bbe\u8ba1\u9636\u6bb5\u5e94\u7279\u522b\u6ce8\u610f\u6750\u6599\u9009\u62e9\n2. \u5efa\u8bae\u589e\u52a0\u5197\u4f59\u8bbe\u8ba1\u63d0\u9ad8\u53ef\u9760\u6027\n3. \u8003\u8651\u73af\u5883\u56e0\u7d20\u5bf9\u8bbe\u5907\u7684\u5f71\u54cd"
+            # 模拟响应
+            return f"基于历史数据分析，针对您的查询 '{query_text}'，我们发现了以下设计建议：\n\n1. 在设计阶段应特别注意材料选择\n2. 建议增加冗余设计提高可靠性\n3. 考虑环境因素对设备的影响"
     
     except Exception as e:
-        print(f'AI\u67e5\u8be2\u5931\u8d25: {str(e)}')
-        return f"\u9488\u5bf9\u60a8\u7684\u67e5\u8be2 '{query_text}'\uff0c\u5efa\u8bae\u5728\u8bbe\u8ba1\u65f6\u8003\u8651\u4ee5\u4e0b\u51e0\u4e2a\u65b9\u9762\uff1a\n\n1. \u6750\u6599\u9009\u62e9\u7684\u53ef\u9760\u6027\n2. \u73af\u5883\u9002\u5e94\u6027\u8bbe\u8ba1\n3. \u7ef4\u62a4\u4fbf\u5229\u6027"
+        print(f'AI查询失败: {str(e)}')
+        return f"针对您的查询 '{query_text}'，建议在设计时考虑以下几个方面：\n\n1. 材料选择的可靠性\n2. 环境适应性设计\n3. 维护便利性"
+
+
+def _query_with_openai(prompt):
+    """使用OpenAI API进行查询"""
+    try:
+        import openai
+        from config import Config
+        
+        openai.api_key = Config.OPENAI_API_KEY
+        
+        response = openai.ChatCompletion.create(
+            model=Config.OPENAI_MODEL or "gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4  # 降低温度以获得更准确的技术建议
+        )
+        
+        analysis = response.choices[0].message['content']
+        return analysis
+    
+    except ImportError:
+        print("OpenAI库未安装，返回模拟响应")
+        return f"基于历史数据分析，针对您的查询，我们发现了以下设计建议：\n\n1. 在设计阶段应特别注意材料选择\n2. 建议增加冗余设计提高可靠性\n3. 考虑环境因素对设备的影响"
+    except Exception as e:
+        print(f"OpenAI查询失败: {str(e)}")
+        return f"基于历史数据分析，针对您的查询，我们发现了以下设计建议：\n\n1. 在设计阶段应特别注意材料选择\n2. 建议增加冗余设计提高可靠性\n3. 考虑环境因素对设备的影响"

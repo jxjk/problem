@@ -44,6 +44,15 @@ class Config:
     
     # 会话配置
     PERMANENT_SESSION_LIFETIME = timedelta(hours=1)
+    
+    # 向量数据库配置
+    VECTOR_DB_PERSIST_DIR = os.environ.get('VECTOR_DB_PERSIST_DIR', './chroma_data')
+    EMBEDDING_MODEL_NAME = os.environ.get('EMBEDDING_MODEL_NAME', 'all-MiniLM-L6-v2')
+    VECTOR_DB_SEARCH_LIMIT = int(os.environ.get('VECTOR_DB_SEARCH_LIMIT', '5'))
+    
+    # 向量数据库配置
+    VECTOR_DB_PATH = os.environ.get('VECTOR_DB_PATH', './chroma_data')
+    EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'all-MiniLM-L6-v2')
 
 
 class DevelopmentConfig(Config):
