@@ -49,12 +49,39 @@ solution_categories_db = [
 ]
 
 # 模拟AI分析函数
-def analyze_problem_with_ai(title, description):
-    """模拟AI分析函数"""
-    return {
-        'analysis': f'基于问题"{title}"的分析：这是一个常见的设备问题，建议检查相关配置和环境条件。',
-        'suggestions': ['检查设备配置', '验证环境条件', '审查操作流程']
-    }
+def analyze_problem_with_ai(title, description, equipment_type=None, phase=None):
+    # 模拟AI分析
+    import time
+    time.sleep(0.5)  # 模拟AI处理时间
+    
+    equipment_context = f"设备类型: {equipment_type}" if equipment_type else "设备类型: 未指定"
+    phase_context = f"发现阶段: {phase}" if phase else "发现阶段: 未指定"
+    
+    analysis = f"""AI分析结果:
+    
+问题分类: 设计缺陷
+系统内部原因分析: 
+   - 设计层面：设计参数可能不符合实际使用需求，设计验证环节存在不足
+   - 制造层面：制造工艺参数可能未严格按照设计要求执行
+   - 维护层面：维护流程可能未覆盖该类型问题的预防
+系统外部原因分析:
+   - 环境因素：设备运行环境可能超出设计预期（如温度、湿度、振动等）
+   - 使用条件：实际操作方式或负载情况可能与设计预期不符
+   - 外部干扰：可能存在外部因素影响设备正常运行
+解决方案: 
+   1. 重新评估设计参数，确保符合实际使用需求
+   2. 加强制造过程中的质量控制
+   3. 优化维护流程，增加针对性检查项目
+   4. 评估并改善设备运行环境
+问题严重程度: 中等
+发现阶段: 设计
+根本原因分析: 设计验证环节不足导致未充分考虑实际使用条件
+
+{equipment_context}
+{phase_context}
+原始问题: {title} - {description}
+    """
+    return {'analysis': analysis}
 
 def extract_category_from_ai_response(ai_analysis, title, description):
     """从AI响应中提取分类信息"""
@@ -184,7 +211,7 @@ def create_problem():
     
     # 模拟AI分析
     try:
-        ai_result = analyze_problem_with_ai(problem['title'], problem['description'])
+        ai_result = analyze_problem_with_ai(problem['title'], problem['description'], equipment_type=problem.get('equipment_type'), phase=problem.get('phase'))
         problem['ai_analyzed'] = True
         problem['ai_analysis'] = ai_result.get('analysis', '')
         

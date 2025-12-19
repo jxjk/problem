@@ -313,7 +313,7 @@ def import_csv_file(file_path: str, fail_on_error: bool = False):
                     
                     # 使用AI分析和分类
                     try:
-                        ai_result = analyze_problem_with_ai(title, description)
+                        ai_result = analyze_problem_with_ai(title, description, equipment_type=equipment_type_name, phase=phase)
                         problem.ai_analyzed = True
                         problem.ai_analysis = ai_result.get('analysis', '')
                         

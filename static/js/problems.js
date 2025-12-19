@@ -255,7 +255,9 @@ function viewProblemDetail(problemId) {
                         
                         ${problem.ai_analysis ? `
                             <p><strong>AI分析结果:</strong></p>
-                            <pre class="bg-light p-3 rounded">${problem.ai_analysis}</pre>
+                            <div class="ai-analysis-content">
+                                ${formatAiAnalysis(problem.ai_analysis)}
+                            </div>
                         ` : ''}
                         
                         ${problem.solution_description ? `
@@ -319,4 +321,128 @@ function deleteProblem(problemId) {
 function searchProblems() {
     currentPage = 1;
     loadProblems(currentPage);
+}
+
+// 格式化AI分析结果
+function formatAiAnalysis(aiAnalysis) {
+    // 尝试解析AI分析结果，提取结构化信息
+    let result = '';
+    
+    // 分割AI分析内容到行
+    const lines = aiAnalysis.split('\n');
+    
+    // 识别和格式化不同的部分
+    let currentSection = '';
+    let sectionContent = '';
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        
+        if (!line) continue;
+        
+        // 识别标题行
+        if (line.includes('问题分类:') || 
+            line.includes('系统内部原因分析:') || 
+            line.includes('系统外部原因分析:') || 
+            line.includes('解决方案:') || 
+            line.includes('问题严重程度:') || 
+            line.includes('发现阶段:') ||
+            line.includes('根本原因分析:')) {
+            
+            // 如果有上一个section，先处理它
+            if (currentSection && sectionContent) {
+                result += renderSection(currentSection, sectionContent);
+                sectionContent = '';
+            }
+            
+            // 提取section标题和内容
+            if (line.includes('问题分类:')) {
+                currentSection = '问题分类';
+                sectionContent = line.replace('问题分类:', '').trim();
+            } else if (line.includes('系统内部原因分析:')) {
+                currentSection = '系统内部原因分析';
+                sectionContent = line.replace('系统内部原因分析:', '').trim();
+            } else if (line.includes('系统外部原因分析:')) {
+                currentSection = '系统外部原因分析';
+                sectionContent = line.replace('系统外部原因分析:', '').trim();
+            } else if (line.includes('解决方案:')) {
+                currentSection = '解决方案';
+                sectionContent = line.replace('解决方案:', '').trim();
+            } else if (line.includes('问题严重程度:')) {
+                currentSection = '问题严重程度';
+                sectionContent = line.replace('问题严重程度:', '').trim();
+            } else if (line.includes('发现阶段:')) {
+                currentSection = '发现阶段';
+                sectionContent = line.replace('发现阶段:', '').trim();
+            } else if (line.includes('根本原因分析:')) {
+                currentSection = '根本原因分析';
+                sectionContent = line.replace('根本原因分析:', '').trim();
+            }
+        } else if (line.startsWith('- ') || line.startsWith('   -')) {
+            // 处理列表项
+            if (currentSection) {
+                sectionContent += '<br>' + line;
+            }
+        } else if (line.startsWith('1.') || line.startsWith('2.') || line.startsWith('3.') || 
+                   line.startsWith('4.') || line.startsWith('5.')) {
+            // 处理编号列表项
+            if (currentSection) {
+                sectionContent += '<br>' + line;
+            }
+        } else {
+            // 添加到当前section的内容中
+            if (currentSection && sectionContent) {
+                sectionContent += '<br>' + line;
+            } else if (currentSection) {
+                sectionContent = line;
+            }
+        }
+    }
+    
+    // 处理最后一个section
+    if (currentSection && sectionContent) {
+        result += renderSection(currentSection, sectionContent);
+    }
+    
+    // 如果没有识别到结构化内容，直接显示原始内容
+    if (!result) {
+        return `<pre class="bg-light p-3 rounded">${aiAnalysis}</pre>`;
+    }
+    
+    return result;
+}
+
+// 渲染section
+function renderSection(title, content) {
+    let badgeClass = '';
+    
+    // 根据标题设置不同的样式
+    if (title.includes('内部')) {
+        badgeClass = 'bg-info';
+    } else if (title.includes('外部')) {
+        badgeClass = 'bg-warning text-dark';
+    } else if (title.includes('解决方案')) {
+        badgeClass = 'bg-success';
+    } else if (title.includes('严重程度')) {
+        if (content.toLowerCase().includes('高') || content.toLowerCase().includes('严重')) {
+            badgeClass = 'bg-danger';
+        } else if (content.toLowerCase().includes('中')) {
+            badgeClass = 'bg-primary';
+        } else if (content.toLowerCase().includes('低')) {
+            badgeClass = 'bg-success';
+        } else {
+            badgeClass = 'bg-secondary';
+        }
+    } else {
+        badgeClass = 'bg-secondary';
+    }
+    
+    return `
+        <div class="mb-3">
+            <h6>
+                <span class="badge ${badgeClass}">${title}</span>
+            </h6>
+            <div class="border-start border-primary ps-2 py-1">${content}</div>
+        </div>
+    `;
 }

@@ -237,7 +237,14 @@ def create_problem():
     
     # 触发AI分析
     try:
-        ai_result = analyze_problem_with_ai(problem.title, problem.description)
+        # 获取设备类型名称
+        equipment_type_name = problem.equipment_type.name if problem.equipment_type else None
+        ai_result = analyze_problem_with_ai(
+            problem.title, 
+            problem.description,
+            equipment_type=equipment_type_name,
+            phase=problem.phase
+        )
         problem.ai_analyzed = True
         problem.ai_analysis = ai_result.get('analysis', '')
         
