@@ -59,6 +59,10 @@ class Config:
     CSV_TITLE_MAX_LENGTH = int(os.environ.get('CSV_TITLE_MAX_LENGTH', '500'))  # 标题最大长度
     CSV_DESCRIPTION_MAX_LENGTH = int(os.environ.get('CSV_DESCRIPTION_MAX_LENGTH', '2000'))  # 描述最大长度
     CSV_EQUIPMENT_TYPE_MAX_LENGTH = int(os.environ.get('CSV_EQUIPMENT_TYPE_MAX_LENGTH', '100'))  # 设备类型最大长度
+    CSV_BATCH_SIZE = int(os.environ.get('CSV_BATCH_SIZE', '100'))  # CSV批量处理大小
+    CSV_FILE_SIZE_LIMIT = int(os.environ.get('CSV_FILE_SIZE_LIMIT', '104857600'))  # CSV文件大小限制（100MB）
+    CSV_ALLOWED_EXTENSIONS = set(os.environ.get('CSV_ALLOWED_EXTENSIONS', 'csv').lower().split(','))  # 允许的文件扩展名
+    CSV_SPECIAL_CHAR_THRESHOLD = float(os.environ.get('CSV_SPECIAL_CHAR_THRESHOLD', '0.5'))  # 特殊字符比例阈值
 
 
 class DevelopmentConfig(Config):

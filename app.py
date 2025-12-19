@@ -6,6 +6,7 @@ from datetime import datetime
 import json
 import csv
 from io import StringIO
+import logging
 
 from models import db, Problem, EquipmentType, ProblemCategory, SolutionCategory
 from config import Config
@@ -31,6 +32,91 @@ ALLOWED_EXTENSIONS = {'csv'}
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def _detect_csv_delimiter(sample_text):
+    """
+    检测CSV文件的分隔符，包含错误处理和默认分隔符回退机制
+    
+    Args:
+        sample_text: CSV文件内容样本
+    
+    Returns:
+        str or None: 检测到的分隔符，如果检测失败返回None
+    """
+    import csv
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if not sample_text:
+        logger.warning("CSV样本文本为空，无法检测分隔符")
+        return None
+
+    # 首先尝试使用csv.Sniffer检测
+    try:
+        sniffer = csv.Sniffer()
+        # 预处理文本，确保文本中包含足够的样本
+        sample = sample_text[:1024]  # 只取前1024字符作为样本
+        delimiter = sniffer.sniff(sample, delimiters=',;\t|:').delimiter
+        if delimiter:
+            logger.info(f"使用csv.Sniffer检测到分隔符: {repr(delimiter)}")
+            return delimiter
+    except (csv.Error, TypeError, ValueError) as e:
+        logger.warning(f"csv.Sniffer检测分隔符失败: {str(e)}")
+        # 如果sniffer失败，继续尝试其他方法
+        pass
+
+    # 如果sniffer失败，使用手动检测方法
+    # 统计常见分隔符出现频率
+    delimiters = [',', ';', '\t', '|', ':', ' ']
+    delimiter_scores = {}
+
+    # 分割前几行来分析可能的分隔符
+    lines = [line.strip() for line in sample_text.split('\n') if line.strip()]
+    if len(lines) < 2:
+        lines = [line.strip() for line in sample_text.split('\r') if line.strip()]
+    if len(lines) < 2:
+        lines = [line.strip() for line in sample_text.split('\r\n') if line.strip()]
+
+    # 只分析前几行，防止样本过多
+    lines = lines[:10]
+
+    for delimiter in delimiters:
+        if not lines:
+            continue
+
+        # 计算每行中分隔符的数量
+        counts = []
+        for line in lines:
+            if line.strip():
+                count = line.count(delimiter)
+                if count > 0:  # 只记录有分隔符的行
+                    counts.append(count)
+
+        # 检查分隔符的一致性：如果每行的分隔符数量相同且大于0，说明很可能是正确分隔符
+        if counts and len(counts) >= 2:  # 至少需要2行来验证一致性
+            if all(c == counts[0] for c in counts) and counts[0] > 0:
+                # 一致性高，给予高分
+                delimiter_scores[delimiter] = counts[0] * 10  # 一致性权重
+            else:
+                # 计算方差，方差越小一致性越高
+                avg = sum(counts) / len(counts)
+                variance = sum((x - avg) ** 2 for x in counts) / len(counts)
+                # 基于平均数和方差打分，方差越小分数越高
+                if avg > 0:
+                    consistency_score = max(0, 10 - variance)  # 一致性分数
+                    delimiter_scores[delimiter] = avg * consistency_score
+
+    # 返回得分最高的分隔符
+    if delimiter_scores:
+        best_delimiter = max(delimiter_scores, key=delimiter_scores.get)
+        best_score = delimiter_scores[best_delimiter]
+        logger.info(f"分隔符检测结果: {repr(best_delimiter)} (得分: {best_score})")
+        return best_delimiter
+    else:
+        # 如果所有方法都失败，返回默认的逗号分隔符
+        logger.info("所有分隔符检测方法都失败，使用默认分隔符 ','")
+        return ','
 
 
 @app.route('/')
@@ -227,32 +313,159 @@ def get_solution_categories():
 @app.route('/api/import-csv', methods=['POST'])
 def import_csv():
     """上传并导入CSV文件"""
+    import time
+    start_time = time.time()  # 记录开始时间用于性能监控
+    
+    # 检查请求中是否包含文件
     if 'csvFile' not in request.files:
+        app.logger.warning('CSV上传请求中未包含文件')
         return jsonify({'error': '请上传CSV文件'}), 400
     
     file = request.files['csvFile']
     if file.filename == '':
+        app.logger.warning('CSV上传请求中文件名为空')
         return jsonify({'error': '请上传CSV文件'}), 400
     
     if not allowed_file(file.filename):
+        app.logger.warning(f'CSV上传文件类型不允许: {file.filename}')
         return jsonify({'error': '只允许上传CSV文件'}), 400
     
+    temp_file_path = None  # 初始化临时文件路径，用于错误处理
+    failed_records_path = None  # 初始化失败记录文件路径
+    
     try:
+        # 记录上传信息用于性能监控
+        app.logger.info(f'开始处理CSV上传: {file.filename}, 大小: {len(file.read())} bytes')
+        file.seek(0)  # 重置文件指针
+        
+        # 安全地处理文件名
         filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
         
-        # 在应用上下文中导入CSV数据
-        with app.app_context():
-            result = import_csv_file(file_path)
+        # 验证文件扩展名
+        if not filename or '.' not in filename:
+            app.logger.warning(f'CSV上传文件名无效: {file.filename}')
+            return jsonify({'error': '无效的文件名'}), 400
+            
+        file_ext = filename.rsplit('.', 1)[1].lower()
+        if file_ext not in app.config.get('CSV_ALLOWED_EXTENSIONS', {'csv'}):
+            app.logger.warning(f'CSV上传文件类型不允许: {file_ext}')
+            return jsonify({'error': '只允许上传CSV文件'}), 400
         
-        # 删除临时文件
-        os.remove(file_path)
+        # 生成唯一的临时文件名，避免冲突
+        import uuid
+        unique_filename = f"{uuid.uuid4().hex}_{filename}"
+        temp_file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
         
-        return jsonify(result)
+        # 保存上传的文件到临时位置
+        file.save(temp_file_path)
+        
+        # 验证文件大小（使用配置中的限制）
+        file_size = os.path.getsize(temp_file_path)
+        max_size = app.config.get('CSV_FILE_SIZE_LIMIT', 100 * 1024 * 1024)  # 从配置中获取限制
+        if file_size > max_size:
+            app.logger.warning(f'上传文件大小超出限制: {file_size} bytes (限制: {max_size} bytes)')
+            return jsonify({'error': '文件大小超出限制'}), 400
+        
+        # 额外的文件内容验证：检查文件是否真的是CSV格式
+        try:
+            # 使用与csv_import.py中相同的编码检测方法
+            encodings = ['utf-8', 'gbk', 'gb2312', 'utf-8-sig', 'latin-1']
+            file_valid = False
+            used_encoding = None
+            
+            for encoding in encodings:
+                try:
+                    with open(temp_file_path, 'r', encoding=encoding) as test_file:
+                        # 读取前1024字节用于检测CSV格式
+                        sample = test_file.read(1024)
+                        used_encoding = encoding
+                        file_valid = True
+                        break
+                except UnicodeDecodeError:
+                    continue
+            
+            if not file_valid:
+                app.logger.warning(f'上传的文件不是有效的文本文件: {filename}')
+                return jsonify({'error': '文件格式错误，不是有效的CSV文件'}), 400
+            
+            # 额外验证：使用csv模块检测文件格式
+            import csv
+            delimiter = _detect_csv_delimiter(sample)
+            if delimiter is None:
+                app.logger.warning(f'无法检测CSV文件分隔符: {filename}')
+                return jsonify({'error': '无法检测CSV文件分隔符，请确保文件是有效的CSV格式'}), 400
+            
+            # 验证CSV文件是否为空
+            with open(temp_file_path, 'r', encoding=used_encoding) as file:
+                reader = csv.DictReader(file, delimiter=delimiter)
+                first_row = next(reader, None)
+                if first_row is None:
+                    app.logger.warning(f'上传的CSV文件为空: {filename}')
+                    return jsonify({'error': 'CSV文件为空'}), 400
+                    
+        except Exception as file_check_error:
+            app.logger.error(f'文件内容验证失败: {str(file_check_error)}')
+            return jsonify({'error': '文件验证失败'}), 400
+        
+        # 验证CSV文件格式
+        from csv_import import validate_csv_headers, save_failed_records_to_csv
+        validation_result = validate_csv_headers(temp_file_path)
+        if not validation_result['valid']:
+            app.logger.warning(f'CSV文件格式验证失败: {validation_result["message"]}')
+            return jsonify({'error': f'CSV文件格式错误: {validation_result["message"]}'}), 400
+        
+        app.logger.info(f'开始CSV数据导入处理: {filename}')
+        
+        # 在应用上下文中导入CSV数据 - 这里使用当前应用上下文，无需重新创建
+        # 使用fail_on_error=False，以便继续处理有效记录
+        result = import_csv_file(temp_file_path, fail_on_error=False)
+        
+        # 如果有失败的记录，保存到单独的文件中
+        if 'failedRecords' in result and result['failedRecords']:
+            failed_records_path = save_failed_records_to_csv(result['failedRecords'])
+            app.logger.info(f'已保存 {len(result["failedRecords"])} 条失败记录到: {failed_records_path}')
+            result['failed_records_file'] = failed_records_path  # 添加失败记录文件路径到结果中
+
+        # 计算处理时间
+        processing_time = time.time() - start_time
+        
+        app.logger.info(f'CSV文件导入完成: {filename}, 成功导入 {result.get("importedCount", 0)} 条记录, '
+                       f'失败 {result.get("failedCount", 0)} 条, 总行数 {result.get("totalCount", 0)}, '
+                       f'处理时间 {processing_time:.2f} 秒')
+        
+        return jsonify({
+            **result,
+            'processing_time': round(processing_time, 2),  # 添加处理时间信息
+            'file_size': file_size  # 添加文件大小信息
+        })
+    
+    except FileNotFoundError:
+        processing_time = time.time() - start_time
+        app.logger.error(f'上传的CSV文件未找到, 处理时间: {processing_time:.2f} 秒')
+        return jsonify({'error': '文件处理失败', 'processing_time': round(processing_time, 2)}), 500
+    except ValueError as ve:
+        processing_time = time.time() - start_time
+        app.logger.error(f'CSV文件格式错误: {str(ve)}, 处理时间: {processing_time:.2f} 秒')
+        return jsonify({'error': f'文件格式错误: {str(ve)}', 'processing_time': round(processing_time, 2)}), 400
     except Exception as e:
-        app.logger.error(f'CSV导入失败: {str(e)}')
-        return jsonify({'error': '导入CSV文件失败', 'details': str(e)}), 500
+        processing_time = time.time() - start_time
+        app.logger.error(f'CSV导入失败: {str(e)}, 处理时间: {processing_time:.2f} 秒', exc_info=True)
+        return jsonify({'error': '导入CSV文件失败', 'details': str(e), 'processing_time': round(processing_time, 2)}), 500
+    finally:
+        # 确保临时文件被删除（如果存在）
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+                app.logger.debug(f'临时CSV文件已删除: {temp_file_path}')
+            except OSError as e:
+                app.logger.error(f'删除临时CSV文件失败: {str(e)}')
+        # 如果失败记录文件不需要长期保存，也可以在此删除（可选）
+        # if failed_records_path and os.path.exists(failed_records_path):
+        #     try:
+        #         os.remove(failed_records_path)
+        #         app.logger.debug(f'失败记录文件已删除: {failed_records_path}')
+        #     except OSError as e:
+        #         app.logger.error(f'删除失败记录文件失败: {str(e)}')
 
 
 @app.route('/api/dashboard-stats', methods=['GET'])

@@ -247,6 +247,7 @@ class ImportHistory(db.Model):
     imported_by = db.Column(db.Integer, db.ForeignKey('users.id'))  # 导入者
     total_records = db.Column(db.Integer)  # 总记录数
     processed_records = db.Column(db.Integer)  # 处理记录数
+    failed_records = db.Column(db.Integer, default=0)  # 失败记录数
     status = db.Column(db.Enum('pending', 'processing', 'completed', 'failed', name='import_status'), default='pending')
     started_at = db.Column(db.DateTime)  # 开始时间
     completed_at = db.Column(db.DateTime)  # 完成时间
