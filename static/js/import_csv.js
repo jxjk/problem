@@ -28,9 +28,9 @@ function uploadCSVFile() {
         return;
     }
     
-    // 检查文件大小（限制10MB）
-    if (file.size > 10 * 1024 * 1024) {
-        alert('文件大小不能超过10MB');
+    // 检查文件大小（限制100MB，放宽限制）
+    if (file.size > 100 * 1024 * 1024) {
+        alert('文件大小不能超过100MB');
         return;
     }
     

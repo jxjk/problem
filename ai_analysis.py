@@ -24,19 +24,20 @@ def analyze_problem_with_ai(title, description):
     """
     try:
         # 构建AI提示
-        prompt = f"""\u8bf7对以下设备问题进行分析：
-        
+        prompt = f"""请对以下设备问题进行详细分析，将问题原因分为系统内部原因和系统外部原因两部分：
+
 问题标题: {title}
 问题描述: {description}
 
 请提供以下信息：
 1. 问题分类（从以下选项中选择：设计缺陷、制造缺陷、材料问题、工艺问题、使用不当、维护不足、环境因素、兼容性问题）
-2. 可能的原因分析
-3. 建议的解决方案
-4. 问题严重程度（低、中、高、严重）
-5. 在哪个阶段发现（设计、开发、使用、维护）
+2. 系统内部原因分析（与设计、制造、材料、工艺、维护等内部因素相关）
+3. 系统外部原因分析（与环境、使用条件、外部干扰等外部因素相关）
+4. 建议的解决方案（优先考虑内部原因的解决方案）
+5. 问题严重程度（低、中、高、严重）
+6. 在哪个阶段发现（设计、开发、使用、维护）
 
-请以结构化文本格式返回分析结果。"""
+请以结构化文本格式返回分析结果，重点突出内部原因的解决方案。"""
         
         # 根据配置使用不同的AI服务
         if Config.AI_PROVIDER == 'openai':
@@ -63,7 +64,10 @@ def _analyze_with_openai(prompt):
         
         response = openai.ChatCompletion.create(
             model=Config.OPENAI_MODEL or "gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": "你是一个专业的设备问题分析专家，帮助工程师分析设备问题并提供解决方案。请将问题原因分为系统内部原因和系统外部原因两部分进行分析，并着重提出解决内部原因的方案。"},
+                {"role": "user", "content": prompt}
+            ],
             temperature=Config.AI_TEMPERATURE or 0.3
         )
         
@@ -93,7 +97,7 @@ def _analyze_with_dashscope(prompt, title, description):
             'model': Config.DASHSCOPE_MODEL or 'qwen-max',
             'input': {
                 'messages': [
-                    {'role': 'system', 'content': '\u4f60\u662f\u4e00\u4e2a\u4e13\u4e1a\u7684\u8bbe\u5907\u95ee\u9898\u5206\u6790\u4e13\u5bb6\uff0c\u5e2e\u52a9\u5de5\u7a0b\u5e08\u5206\u6790\u8bbe\u5907\u95ee\u9898\u5e76\u63d0\u4f9b\u89e3\u51b3\u65b9\u6848\u3002'},
+                    {'role': 'system', 'content': '你是一个专业的设备问题分析专家，帮助工程师分析设备问题并提供解决方案。请将问题原因分为系统内部原因和系统外部原因两部分进行分析，并着重提出解决内部原因的方案。'},
                     {'role': 'user', 'content': prompt}
                 ]
             },
@@ -128,14 +132,7 @@ def _analyze_with_dashscope(prompt, title, description):
 def _simulate_ai_analysis(title, description):
     """模拟AI分析（当没有配置AI服务时使用）"""
     # 这里可以使用一些基本的规则来模拟AI分析
-    analysis = f"""AI\u5206\u6790\u7ed3\u679c:\n    
-\u95ee\u9898\u5206\u7c7b: \u8bbe\u8ba1\u7f3a\u9677
-\u539f\u56e0\u5206\u6790: \u6839\u636e\u95ee\u9898\u63cf\u8ff0\uff0c\u53ef\u80fd\u662f\u7531\u4e8e\u8bbe\u8ba1\u9636\u6bb5\u8003\u8651\u4e0d\u5468\u5bfc\u81f4\u7684\u95ee\u9898
-\u89e3\u51b3\u65b9\u6848: \u5efa\u8bae\u91cd\u65b0\u8bc4\u4f30\u8bbe\u8ba1\u65b9\u6848\uff0c\u589e\u52a0\u8bbe\u8ba1\u9a8c\u8bc1\u73af\u8282
-\u4e25\u91cd\u7a0b\u5ea6: \u4e2d\u7b49
-\u53d1\u73b0\u9636\u6bb5: \u8bbe\u8ba1    
-\n\u539f\u59cb\u95ee\u9898: {title} - {description}
-    """
+    analysis = f"""AI分析结果:\n    \n问题分类: 设计缺陷\n系统内部原因分析: 根据问题描述，可能是由于设计阶段考虑不周、设计参数不当或设计验证不充分导致的问题\n系统外部原因分析: 可能与使用环境超出设计预期、操作条件变化或外部干扰因素有关\n解决方案: 建议重新评估设计方案，增加设计验证环节，优化内部设计参数以提高对外部环境变化的适应性\n问题严重程度: 中等\n发现阶段: 设计    \n\n原始问题: {title} - {description}\n    """
     return {'analysis': analysis}
 
 
@@ -372,7 +369,132 @@ def _query_with_openai(prompt):
     
     except ImportError:
         print("OpenAI库未安装，返回模拟响应")
-        return f"基于历史数据分析，针对您的查询，我们发现了以下设计建议：\n\n1. 在设计阶段应特别注意材料选择\n2. 建议增加冗余设计提高可靠性\n3. 考虑环境因素对设备的影响"
+        return "基于历史数据分析，针对您的查询，我们发现了以下设计建议：\n\n1. 在设计阶段应特别注意材料选择\n2. 建议增加冗余设计提高可靠性\n3. 考虑环境因素对设备的影响"
     except Exception as e:
         print(f"OpenAI查询失败: {str(e)}")
-        return f"基于历史数据分析，针对您的查询，我们发现了以下设计建议：\n\n1. 在设计阶段应特别注意材料选择\n2. 建议增加冗余设计提高可靠性\n3. 考虑环境因素对设备的影响"
+        return "基于历史数据分析，针对您的查询，我们发现了以下设计建议：\n\n1. 在设计阶段应特别注意材料选择\n2. 建议增加冗余设计提高可靠性\n3. 考虑环境因素对设备的影响"
+
+
+def generate_internal_solution_focus(problem_title, problem_description, ai_analysis_result):
+    """
+    生成着重解决内部原因引发故障的解决方案
+    
+    Args:
+        problem_title: 问题标题
+        problem_description: 问题描述
+        ai_analysis_result: AI分析结果
+    
+    Returns:
+        str: 针对内部原因的解决方案
+    """
+    try:
+        prompt = f"""基于以下设备问题和AI分析结果，请专门针对系统内部原因生成详细的解决方案：
+
+问题标题: {problem_title}
+问题描述: {problem_description}
+AI分析结果: {ai_analysis_result}
+
+请重点关注以下方面生成解决方案：
+1. 设计层面的改进措施
+2. 制造工艺的优化方案
+3. 材料选择的改进建议
+4. 内部流程和规范的完善
+5. 质量控制和测试环节的加强
+6. 维护保养流程的优化
+
+请提供具体、可执行的内部改进方案，以减少由于系统内部原因导致的故障。"""
+        
+        # 根据配置使用不同的AI服务
+        if Config.AI_PROVIDER == 'openai':
+            import openai
+            from config import Config
+            
+            openai.api_key = Config.OPENAI_API_KEY
+            
+            response = openai.ChatCompletion.create(
+                model=Config.OPENAI_MODEL or "gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "你是一个专业的设备工程专家，专注于解决系统内部原因导致的故障。请提供详细、具体的内部改进方案。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=Config.AI_TEMPERATURE or 0.3
+            )
+            
+            solution = response.choices[0].message['content']
+            return solution
+        elif Config.AI_PROVIDER == 'dashscope':  # 通义千问
+            import requests
+            
+            headers = {
+                'Authorization': f'Bearer {Config.DASHSCOPE_API_KEY}',
+                'Content-Type': 'application/json'
+            }
+            
+            data = {
+                'model': Config.DASHSCOPE_MODEL or 'qwen-max',
+                'input': {
+                    'messages': [
+                        {'role': 'system', 'content': '你是一个专业的设备工程专家，专注于解决系统内部原因导致的故障。请提供详细、具体的内部改进方案。'},
+                        {'role': 'user', 'content': prompt}
+                    ]
+                },
+                'parameters': {
+                    'temperature': Config.AI_TEMPERATURE or 0.7,
+                    'top_p': Config.AI_TOP_P or 0.8
+                }
+            }
+            
+            response = requests.post(
+                Config.DASHSCOPE_API_BASE or 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation',
+                headers=headers,
+                json=data
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                solution = result.get('output', {}).get('text', '')
+                return solution
+            else:
+                print(f"通义千问API调用失败: {response.status_code}, {response.text}")
+                return _generate_internal_solution_simulation(problem_title, problem_description)
+        else:
+            # 模拟响应（如果没有配置AI服务）
+            return _generate_internal_solution_simulation(problem_title, problem_description)
+    
+    except Exception as e:
+        print(f'生成内部原因解决方案失败: {str(e)}')
+        return _generate_internal_solution_simulation(problem_title, problem_description)
+
+
+def _generate_internal_solution_simulation(problem_title, problem_description):
+    """模拟生成内部原因解决方案"""
+    solution = f"""内部原因解决方案:
+
+1. 设计优化:
+   - 重新评估设计参数，确保设计余量充足
+   - 增加设计验证环节，包括仿真分析和原型测试
+   - 考虑使用更可靠的组件和材料
+
+2. 制造工艺改进:
+   - 优化生产工艺流程，减少制造误差
+   - 加强生产过程中的质量控制
+   - 实施更严格的工艺标准和检验程序
+
+3. 材料选择改进:
+   - 评估当前材料的适用性
+   - 考虑使用更高性能或更可靠的替代材料
+   - 加强材料入库检验程序
+
+4. 质量控制加强:
+   - 增加出厂前的测试项目
+   - 实施更全面的质量管理体系
+   - 定期进行质量审核和改进
+
+5. 维护保养优化:
+   - 制定更详细的维护计划
+   - 提供维护人员培训
+   - 建立预防性维护体系
+
+问题: {problem_title}
+描述: {problem_description}"""
+    return solution

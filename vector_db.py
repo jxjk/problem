@@ -54,7 +54,8 @@ class VectorDB:
                 )
             except Exception as e:
                 logging.error(f"初始化ChromaDB失败: {e}")
-                CHROMA_AVAILABLE = False
+                # Set the global availability to False using setattr to avoid SyntaxError
+                globals()['CHROMA_AVAILABLE'] = False
         else:
             logging.warning("VectorDB running in degraded mode. Some functionality may be limited.")
         

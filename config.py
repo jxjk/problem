@@ -21,7 +21,7 @@ class Config:
     
     # 上传文件配置
     UPLOAD_FOLDER = os.environ.get('UPLOAD_FOLDER') or 'uploads'
-    MAX_CONTENT_LENGTH = 10 * 1024 * 1024  # 10MB max file size
+    MAX_CONTENT_LENGTH = 100 * 1024 * 1024  # 100MB max file size
     
     # AI服务配置
     AI_PROVIDER = os.environ.get('AI_PROVIDER', 'mock').lower()  # 可选: openai, dashscope, mock
@@ -53,6 +53,12 @@ class Config:
     # 向量数据库配置
     VECTOR_DB_PATH = os.environ.get('VECTOR_DB_PATH', './chroma_data')
     EMBEDDING_MODEL = os.environ.get('EMBEDDING_MODEL', 'all-MiniLM-L6-v2')
+    
+    # CSV导入配置
+    CSV_MAX_ROWS = int(os.environ.get('CSV_MAX_ROWS', '10000'))  # CSV最大行数
+    CSV_TITLE_MAX_LENGTH = int(os.environ.get('CSV_TITLE_MAX_LENGTH', '500'))  # 标题最大长度
+    CSV_DESCRIPTION_MAX_LENGTH = int(os.environ.get('CSV_DESCRIPTION_MAX_LENGTH', '2000'))  # 描述最大长度
+    CSV_EQUIPMENT_TYPE_MAX_LENGTH = int(os.environ.get('CSV_EQUIPMENT_TYPE_MAX_LENGTH', '100'))  # 设备类型最大长度
 
 
 class DevelopmentConfig(Config):

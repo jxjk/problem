@@ -242,8 +242,9 @@ def import_csv():
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
         
-        # 导入CSV数据
-        result = import_csv_file(file_path)
+        # 在应用上下文中导入CSV数据
+        with app.app_context():
+            result = import_csv_file(file_path)
         
         # 删除临时文件
         os.remove(file_path)
@@ -443,10 +444,10 @@ def dashboard_page():
     return render_template('dashboard.html')
 
 
-@app.before_first_request
+
 def initialize_vector_db():
     """
-    在第一次请求前初始化向量数据库
+    初始化向量数据库
     将现有问题数据添加到向量数据库中
     """
     init_vector_db()
@@ -613,47 +614,6 @@ if __name__ == '__main__':
     with app.app_context():
         db.create_all()
         # 初始化向量数据库
-        init_vector_db()
-        
-        # 将现有问题导入到向量数据库中
-        try:
-            existing_problems = Problem.query.all()
-            app.logger.info(f"开始同步 {len(existing_problems)} 个现有问题到向量数据库")
-            
-            # 批量处理现有问题
-            problems_data = []
-            for problem in existing_problems:
-                metadata = {
-                    'equipment_type_id': problem.equipment_type_id,
-                    'problem_category_id': problem.problem_category_id,
-                    'solution_category_id': problem.solution_category_id,
-                    'status': problem.status,
-                    'priority': problem.priority,
-                    'phase': problem.phase,
-                    'discovered_by': problem.discovered_by,
-                    'discovered_at': str(problem.discovered_at) if problem.discovered_at else None,
-                    'ai_analyzed': problem.ai_analyzed,
-                    'ai_analysis': problem.ai_analysis,
-                    'solution_description': problem.solution_description,
-                    'created_at': str(problem.created_at),
-                    'updated_at': str(problem.updated_at)
-                }
-                problems_data.append({
-                    'id': str(problem.id),
-                    'title': problem.title,
-                    'description': problem.description or "",
-                    'metadata': metadata
-                })
-            
-            if problems_data:
-                from vector_db import get_vector_db
-                vector_db = get_vector_db()
-                result = vector_db.batch_add_problems(problems_data)
-                app.logger.info(f"批量同步完成: 成功 {result['success_count']} 个, 失败 {len(result['failed_ids'])} 个")
-                
-                if result['failed_ids']:
-                    app.logger.error(f"以下问题同步失败: {result['failed_ids']}")
-        except Exception as e:
-            app.logger.error(f"同步现有问题到向量数据库时出错: {str(e)}")
+        initialize_vector_db()
     
     app.run(debug=True, host='0.0.0.0', port=5000)

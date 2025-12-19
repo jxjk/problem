@@ -3,7 +3,7 @@
 创建所有表并添加初始数据
 """
 from models import db, EquipmentType, ProblemCategory, SolutionCategory
-from run import app  # 从run.py导入app
+from app import app  # 从app.py导入app
 from vector_db import init_vector_db
 
 
